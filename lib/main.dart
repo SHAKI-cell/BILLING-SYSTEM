@@ -10,6 +10,7 @@ import 'features/shop/presentation/bloc/shop_bloc.dart';
 import 'features/settings/presentation/bloc/printer_bloc.dart';
 import 'features/settings/presentation/bloc/printer_event.dart';
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await HiveDatabase.init();
@@ -29,12 +30,15 @@ class MyApp extends StatelessWidget {
         BlocProvider<ShopBloc>(
             create: (context) => di.sl<ShopBloc>()..add(LoadShopEvent())),
         BlocProvider<BillingBloc>(
-            create: (context) =>
-                BillingBloc(getProductByBarcodeUseCase: di.sl())),
+            create: (context) => BillingBloc(
+                  getProductByBarcodeUseCase: di.sl(),
+                  recognizeProductUseCase: di.sl(),
+                )),
         BlocProvider<PrinterBloc>(
             create: (context) => di.sl<PrinterBloc>()..add(InitPrinterEvent())),
       ],
       child: MaterialApp.router(
+        scaffoldMessengerKey: di.scaffoldMessengerKey,
         title: 'Billing App',
         theme: AppTheme.lightTheme,
         routerConfig: router,

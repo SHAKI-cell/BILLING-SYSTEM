@@ -10,6 +10,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/primary_button.dart';
 import '../../domain/entities/cart_item.dart';
 import '../../../shop/presentation/bloc/shop_bloc.dart';
+import 'package:billing_app/core/service_locator.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,26 +19,62 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  final MobileScannerController _scannerController = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    returnImage: false,
-  );
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  MobileScannerController? _scannerController;
 
   bool _isCameraOn = true;
   bool _isFlashOn = false;
   String _lastScannedName = 'None';
+  bool _isNavigating = false;
 
   // Cooldown mapping to prevent rapid firing of the same barcode
   final Map<String, DateTime> _lastScanTimes = {};
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initController();
+  }
+
+  void _initController() {
+    if (_scannerController == null) {
+      _scannerController = MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        detectionTimeoutMs: 250,
+        returnImage: true,
+      );
+    }
+  }
+
+  void _disposeController() {
+    _scannerController?.dispose();
+    _scannerController = null;
+    _isFlashOn = false;
+  }
+
+  @override
   void dispose() {
-    _scannerController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _disposeController();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _disposeController();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_isCameraOn && !_isNavigating) {
+        setState(() {
+          _initController();
+        });
+      }
+    }
+  }
+
   void _onDetect(BarcodeCapture capture) async {
+    if (_isNavigating) return; // Prevent scans during transitions/navigation
     final List<Barcode> barcodes = capture.barcodes;
     final now = DateTime.now();
 
@@ -45,10 +82,10 @@ class _HomePageState extends State<HomePage> {
       if (barcode.rawValue != null) {
         final rawValue = barcode.rawValue!;
 
-        // Cooldown logic: 2 seconds per identical barcode
+        // Cooldown logic: 1 second per identical barcode
         if (_lastScanTimes.containsKey(rawValue)) {
           final lastScan = _lastScanTimes[rawValue]!;
-          if (now.difference(lastScan).inSeconds < 2) {
+          if (now.difference(lastScan).inMilliseconds < 1000) {
             continue;
           }
         }
@@ -62,7 +99,9 @@ class _HomePageState extends State<HomePage> {
         }
 
         if (mounted) {
-          context.read<BillingBloc>().add(ScanBarcodeEvent(rawValue));
+          ScaffoldMessenger.of(context).clearSnackBars(); // Dismiss locally
+          scaffoldMessengerKey.currentState?.clearSnackBars(); // Dismiss globally
+          context.read<BillingBloc>().add(ScanBarcodeEvent(rawValue, imageBytes: capture.image));
         }
         break; // Process one barcode at a time per frame
       }
@@ -83,13 +122,16 @@ class _HomePageState extends State<HomePage> {
             setState(() {
               _lastScannedName = state.cartItems.last.product.name;
             });
+            // If product was successfully added to cart, make sure any previous error SnackBars are dismissed
+            ScaffoldMessenger.of(context).clearSnackBars();
+            scaffoldMessengerKey.currentState?.clearSnackBars();
           }
 
-          if (state.error != null) {
+          if (state.error != null && !_isNavigating) {
             final errorText = state.error!;
             if (errorText.startsWith('Product not found: ')) {
               final barcode = errorText.replaceFirst('Product not found: ', '').trim();
-              ScaffoldMessenger.of(context).showSnackBar(
+              scaffoldMessengerKey.currentState?.showSnackBar(
                 SnackBar(
                   content: Text(errorText),
                   backgroundColor: Colors.red,
@@ -98,17 +140,25 @@ class _HomePageState extends State<HomePage> {
                     label: 'Add Product',
                     textColor: Colors.white,
                     onPressed: () async {
-                      _scannerController.stop();
+                      setState(() {
+                        _isNavigating = true;
+                        _disposeController();
+                      });
+                      ScaffoldMessenger.of(context).clearSnackBars(); // Dismiss locally
+                      scaffoldMessengerKey.currentState?.clearSnackBars(); // Dismiss the red popup instantly when clicked!
                       await context.push('/products/add', extra: barcode);
-                      if (_isCameraOn && mounted) {
-                        _scannerController.start();
-                      }
+                      setState(() {
+                        _isNavigating = false;
+                        if (_isCameraOn) {
+                          _initController();
+                        }
+                      });
                     },
                   ),
                 ),
               );
             } else {
-              ScaffoldMessenger.of(context).showSnackBar(
+              scaffoldMessengerKey.currentState?.showSnackBar(
                 SnackBar(
                   content: Text(errorText),
                   backgroundColor: Colors.red,
@@ -191,11 +241,17 @@ class _HomePageState extends State<HomePage> {
                                   // Store Icon Button
                                   GestureDetector(
                                     onTap: () async {
-                                      _scannerController.stop();
+                                      setState(() {
+                                        _isNavigating = true;
+                                        _disposeController();
+                                      });
                                       await context.push('/shop');
-                                      if (_isCameraOn && mounted) {
-                                        _scannerController.start();
-                                      }
+                                      setState(() {
+                                        _isNavigating = false;
+                                        if (_isCameraOn) {
+                                          _initController();
+                                        }
+                                      });
                                     },
                                     child: Container(
                                       width: 48,
@@ -293,11 +349,17 @@ class _HomePageState extends State<HomePage> {
                           onPressed: billingState.cartItems.isEmpty
                               ? null
                               : () async {
-                                  _scannerController.stop();
+                                  setState(() {
+                                    _isNavigating = true;
+                                    _disposeController();
+                                  });
                                   await context.push('/checkout');
-                                  if (_isCameraOn && mounted) {
-                                    _scannerController.start();
-                                  }
+                                  setState(() {
+                                    _isNavigating = false;
+                                    if (_isCameraOn) {
+                                      _initController();
+                                    }
+                                  });
                                 },
                           icon: Icons.chevron_right_rounded,
                           label: 'Review Order',
@@ -338,9 +400,10 @@ class _HomePageState extends State<HomePage> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (_isCameraOn)
+                  if (_isCameraOn && _scannerController != null)
                     MobileScanner(
-                      controller: _scannerController,
+                      key: ValueKey(_scannerController),
+                      controller: _scannerController!,
                       onDetect: _onDetect,
                     )
                   else
@@ -364,14 +427,14 @@ class _HomePageState extends State<HomePage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_isCameraOn) ...[
+                        if (_isCameraOn && _scannerController != null) ...[
                           _buildOverlayButton(
                             icon: _isFlashOn
                                 ? Icons.flashlight_off_rounded
                                 : Icons.flashlight_on_rounded,
                             onPressed: () {
                               setState(() => _isFlashOn = !_isFlashOn);
-                              _scannerController.toggleTorch();
+                              _scannerController?.toggleTorch();
                             },
                           ),
                           const SizedBox(width: 8),
@@ -383,12 +446,12 @@ class _HomePageState extends State<HomePage> {
                           onPressed: () {
                             setState(() {
                               _isCameraOn = !_isCameraOn;
+                              if (_isCameraOn) {
+                                _initController();
+                              } else {
+                                _disposeController();
+                              }
                             });
-                            if (_isCameraOn) {
-                              _scannerController.start();
-                            } else {
-                              _scannerController.stop();
-                            }
                           },
                         ),
                       ],

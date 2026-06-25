@@ -7,6 +7,7 @@ class LookupProduct extends Equatable {
   final String? category;
   final String? quantity;
   final String? imageUrl;
+  final Map<String, String>? metadata;
 
   const LookupProduct({
     required this.barcode,
@@ -15,6 +16,7 @@ class LookupProduct extends Equatable {
     this.category,
     this.quantity,
     this.imageUrl,
+    this.metadata,
   });
 
   @override
@@ -25,5 +27,6 @@ class LookupProduct extends Equatable {
         category,
         quantity,
         imageUrl,
+        metadata,
       ];
 }

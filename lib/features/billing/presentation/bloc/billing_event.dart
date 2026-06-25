@@ -8,9 +8,10 @@ abstract class BillingEvent extends Equatable {
 
 class ScanBarcodeEvent extends BillingEvent {
   final String barcode;
-  const ScanBarcodeEvent(this.barcode);
+  final Uint8List? imageBytes;
+  const ScanBarcodeEvent(this.barcode, {this.imageBytes});
   @override
-  List<Object> get props => [barcode];
+  List<Object> get props => [barcode, if (imageBytes != null) imageBytes!];
 }
 
 class AddProductToCartEvent extends BillingEvent {

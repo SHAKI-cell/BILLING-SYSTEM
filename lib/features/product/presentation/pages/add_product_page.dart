@@ -32,6 +32,14 @@ class _AddProductPageState extends State<AddProductPage> {
   @override
   void initState() {
     super.initState();
+    // Dismiss any active warning snackbars immediately when entering this page
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        scaffoldMessengerKey.currentState?.clearSnackBars();
+        ScaffoldMessenger.of(context).clearSnackBars();
+      }
+    });
+
     _barcodeController = TextEditingController(text: widget.barcode ?? '');
     _nameController = TextEditingController();
     _barcodeController.addListener(_onBarcodeChanged);
@@ -176,6 +184,9 @@ class _AddProductPageState extends State<AddProductPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Clear any active SnackBars immediately when building the AddProductPage
+    scaffoldMessengerKey.currentState?.clearSnackBars();
+    ScaffoldMessenger.of(context).clearSnackBars();
     return Scaffold(
         appBar: AppBar(
           backgroundColor: Colors.transparent,

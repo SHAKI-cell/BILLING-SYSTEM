@@ -1,8 +1,10 @@
+import 'dart:typed_data';
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../domain/entities/cart_item.dart';
 import 'package:billing_app/features/product/domain/entities/product.dart';
 import 'package:billing_app/features/product/domain/usecases/product_usecases.dart';
+import 'package:billing_app/features/product/domain/usecases/recognize_product_usecase.dart';
 import '../../../../core/utils/printer_helper.dart';
 import '../../../../core/data/hive_database.dart';
 
@@ -11,9 +13,12 @@ part 'billing_state.dart';
 
 class BillingBloc extends Bloc<BillingEvent, BillingState> {
   final GetProductByBarcodeUseCase getProductByBarcodeUseCase;
+  final RecognizeProductUseCase recognizeProductUseCase;
 
-  BillingBloc({required this.getProductByBarcodeUseCase})
-      : super(const BillingState()) {
+  BillingBloc({
+    required this.getProductByBarcodeUseCase,
+    required this.recognizeProductUseCase,
+  }) : super(const BillingState()) {
     on<ScanBarcodeEvent>(_onScanBarcode);
     on<AddProductToCartEvent>(_onAddProductToCart);
     on<RemoveProductFromCartEvent>(_onRemoveProductFromCart);
@@ -25,13 +30,49 @@ class BillingBloc extends Bloc<BillingEvent, BillingState> {
   Future<void> _onScanBarcode(
       ScanBarcodeEvent event, Emitter<BillingState> emit) async {
     final result = await getProductByBarcodeUseCase(event.barcode);
+    
+    bool found = false;
+    Product? foundProduct;
+    
     result.fold(
-      (failure) =>
-          emit(state.copyWith(error: 'Product not found: ${event.barcode}')),
+      (failure) {
+        // Cache & Cloud miss
+      },
       (product) {
-        add(AddProductToCartEvent(product));
+        found = true;
+        foundProduct = product;
       },
     );
+
+    if (found && foundProduct != null) {
+      add(AddProductToCartEvent(foundProduct!));
+      return;
+    }
+
+    // 2. If database lookup fails (cache & cloud miss), start the background AI recognition
+    if (event.imageBytes != null) {
+      final aiResult = await recognizeProductUseCase(
+        RecognizeProductParams(
+          imageBytes: event.imageBytes!,
+          barcode: event.barcode,
+        ),
+      );
+      
+      aiResult.fold(
+        (failure) {
+          // If everything fails (e.g. backend offline), trigger the default manual add fallback
+          emit(state.copyWith(error: 'Product not found: ${event.barcode}', clearError: false));
+          emit(state.copyWith(clearError: true));
+        },
+        (product) {
+          add(AddProductToCartEvent(product));
+        },
+      );
+    } else {
+      // No image bytes, trigger the default manual add fallback
+      emit(state.copyWith(error: 'Product not found: ${event.barcode}', clearError: false));
+      emit(state.copyWith(clearError: true));
+    }
   }
 
   void _onAddProductToCart(

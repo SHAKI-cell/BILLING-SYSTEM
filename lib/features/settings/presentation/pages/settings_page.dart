@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:app_settings/app_settings.dart';
 
+import '../../../../core/data/hive_database.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../shop/presentation/bloc/shop_bloc.dart';
 import '../bloc/printer_bloc.dart';
@@ -17,11 +18,22 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  late TextEditingController _apiUrlController;
+
   @override
   void initState() {
     super.initState();
     // Re-initialize printer state whenever settings page opens
     context.read<PrinterBloc>().add(InitPrinterEvent());
+    
+    final savedUrl = HiveDatabase.settingsBox.get('backend_api_url', defaultValue: 'http://10.0.2.2:8000');
+    _apiUrlController = TextEditingController(text: savedUrl);
+  }
+
+  @override
+  void dispose() {
+    _apiUrlController.dispose();
+    super.dispose();
   }
 
   @override
@@ -211,6 +223,64 @@ class _SettingsPageState extends State<SettingsPage> {
                     fontStyle: FontStyle.italic,
                     color: Colors.grey[500]),
               ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // API Configurations Section
+            _buildSectionHeader('API Configurations'),
+            _buildListGroup(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.cloud_queue, color: AppTheme.primaryColor, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Backend API Base URL',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _apiUrlController,
+                        decoration: InputDecoration(
+                          hintText: 'e.g. http://10.0.2.2:8000',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey[200]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: AppTheme.primaryColor),
+                          ),
+                        ),
+                        onChanged: (value) {
+                          HiveDatabase.settingsBox.put('backend_api_url', value.trim());
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'This URL is used for cloud database lookups and background AI recognition.',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 48),
